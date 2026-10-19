@@ -1,0 +1,38 @@
+name: Refresh Kinguin data
+
+on:
+  schedule:
+    - cron: '17 */3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: king-data-production
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout converter
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Test conversion rules
+        run: python3 -m unittest discover -p test_convert_feed.py
+      - name: Convert current partner feed
+        run: >-
+          python3 convert_feed.py
+          --source https://feeds.kinguin.net/xml/AFF_multicurrency_en_AED.xml
+          --output dist
+      - name: Verify dataset before publishing
+        run: python3 prepare_publish.py dist
+      - name: Publish complete static dataset
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=game-sentinel-kinguin-data --branch=main
