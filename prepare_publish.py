@@ -9,7 +9,7 @@ def prepare(directory):
     directory = Path(directory).resolve()
     manifest_path = directory / 'manifest.json'
     manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
-    if manifest.get('schema') != 1 or manifest.get('offers', 0) <= 0:
+    if manifest.get('schema') != 2 or manifest.get('offers', 0) <= 0:
         raise ValueError('Missing or empty catalog')
     if len(manifest['shards']) != 4096:
         raise ValueError('Incomplete shard set')

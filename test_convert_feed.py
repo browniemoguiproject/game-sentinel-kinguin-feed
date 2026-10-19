@@ -5,7 +5,7 @@ import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 
-from convert_feed import convert, offer
+from convert_feed import convert, offer, bucket_for, game_name, identity
 
 
 ITEM = '''<item xmlns:g="http://base.google.com/ns/1.0">
@@ -41,9 +41,9 @@ class ConverterTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / 'dataset'
             manifest = convert(io.BytesIO(feed), out, 'test')
-            shard = json.loads((out / ('%03x.json' % (1903340 % 4096))).read_text(encoding='utf-8'))
-            self.assertEqual(len(shard['games']['1903340']), 2)
-            self.assertEqual(manifest['games'], 1)
+            shard = json.loads((out / ('%03x.json' % bucket_for('s:1903340'))).read_text(encoding='utf-8'))
+            self.assertEqual(len(shard['entries']['s:1903340']), 2)
+            self.assertEqual(manifest['games'], 2)
             self.assertEqual(manifest['offers'], 2)
             self.assertFalse((out / 'working.sqlite').exists())
 
@@ -57,6 +57,22 @@ class ConverterTest(unittest.TestCase):
     def test_invalid_price_and_external_link_are_not_accepted(self):
         invalid = ITEM.replace('24.88', 'NaN').replace('www.kinguin.net', 'unrelated.example')
         self.assertIsNone(offer(ET.fromstring(invalid)))
+
+    def test_gog_key_without_steam_id_is_included(self):
+        gog = ITEM.replace('Steam CD Key', 'GOG CD Key').replace('<g:platform>Steam</g:platform>', '<g:platform>GOG.com</g:platform>').replace('<g:steam_id>1903340</g:steam_id>', '')
+        row = offer(ET.fromstring(gog))
+        self.assertIsNone(row['steamId'])
+        self.assertEqual(row['identity'], 'example game')
+        self.assertEqual(row['platform'], 'GOG.com')
+
+    def test_accounts_gifts_and_vpn_are_not_game_keys(self):
+        for title in ('Game PC Steam Account', 'Game Steam Gift', 'Game VPN PC Steam CD Key'):
+            self.assertIsNone(game_name(title))
+
+    def test_normalization_keeps_sequels_and_editions_distinct(self):
+        self.assertEqual(identity(game_name('Warhammer 40,000: Boltgun II EU PC Steam CD Key')), 'warhammer 40000 boltgun 2')
+        self.assertNotEqual(identity(game_name('Game Deluxe Edition PC GOG CD Key')), identity('Game'))
+        self.assertEqual(game_name('Doom II PC Steam CD Key'), 'Doom II')
 
 
 if __name__ == '__main__':
