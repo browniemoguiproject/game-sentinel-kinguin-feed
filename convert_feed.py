@@ -33,20 +33,26 @@ def identity(title):
     return ' '.join(roman.get(c, c) for c in title.split())
 
 
-def game_name(title):
-    # Only a key with an explicit PC storefront or PC label. Never account/gift/VPN offers.
-    if re.search(r'\b(?:account|gift|vpn|activation service)\b', title, re.I):
+def product_delivery(title):
+    # A delivery suffix is required; do not confuse gift cards or services with games.
+    if re.search(r'\b(?:vpn|activation service)\b', title, re.I):
         return None
     store = r'(?:Steam|GOG(?:\.com)?|Epic(?: Games(?: Store)?)?|Uplay|Ubisoft Connect|Origin|EA(?: App)?|Battle\.?net|Rockstar(?: Games Launcher)?|Bethesda|Windows Store|Microsoft Store)'
-    suffix = r'\s+(?:(?:PC\s+)?' + store + r'|PC)(?:\s+(?:CD|Digital))?\s+Key\s*$'
+    suffix = r'\s+(?:(?:PC\s+)?' + store + r'|PC)(?:\s+(?:CD|Digital))?\s+(Key|Account|Gift|Altergift)\s*$'
     match = re.search(suffix, title, re.I)
     if not match:
         return None
     name = title[:match.start()].strip()
     # Geographic labels, not game editions, can be removed from the end.
-    regions = r'(?:EU|EUROPE|EMEA|ASIA|LATAM|ROW|GLOBAL|WORLDWIDE|RU/CIS|CIS|NA|US|UK|DE|FR|IT|ES|PL|BR|TR|CN|JP|RU|AU|CA)'
+    regions = r'(?:South America|North America|Latin America|United States|United Kingdom|EU|EUROPE|EMEA|ASIA|LATAM|ROW|GLOBAL|WORLDWIDE|RU/CIS|CIS|NA|US|UK|DE|FR|IT|ES|PL|BR|TR|CN|JP|RU|AU|CA)'
     name = re.sub(r'\s+' + regions + r'\s*$', '', name, flags=re.I).strip()
-    return name or None
+    kind = {'key': 'KEY', 'account': 'ACCOUNT', 'gift': 'GIFT', 'altergift': 'ALTERGIFT'}[match.group(1).casefold()]
+    return (name, kind) if name else None
+
+
+def game_name(title):
+    parsed = product_delivery(title)
+    return parsed[0] if parsed else None
 
 
 def bucket_for(key):
@@ -74,11 +80,13 @@ def offer(item):
         return (item.findtext(G + name) or '').strip()
     steam = g('steam_id')
     title = (item.findtext('title') or '').strip()
-    name = game_name(title)
+    delivery = product_delivery(title)
     platform = g('platform')
-    if (not name or g('product_type') != 'GAME' or platform.casefold() not in PC_PLATFORMS
+    allowed = {'KEY': {'GAME'}, 'ACCOUNT': {'GAME_ACCOUNT'}, 'GIFT': {'GAME'}, 'ALTERGIFT': {'ALTERGIFT'}}
+    if (not delivery or g('product_type') not in allowed[delivery[1]] or platform.casefold() not in PC_PLATFORMS
             or (platform.casefold() in {'microsoft store','other','pc'} and not re.search(r'\bPC\b', title, re.I))):
         return None
+    name, delivery_type = delivery
     steam = str(int(steam)) if steam.isdigit() and int(steam) > 0 and g('steam_type') == 'app' else None
     prices = []
     for row in item.findall('./prices/price_details'):
@@ -102,7 +110,7 @@ def offer(item):
     if not prices or not g('id'):
         return None
     return {'steamId': steam, 'productId': g('id'), 'title': title,
-            'gameName': name, 'identity': identity(name), 'platform': platform,
+            'gameName': name, 'identity': identity(name), 'platform': platform, 'deliveryType': delivery_type,
             'developer': g('developer'), 'publisher': g('publisher'),
             'region': g('region'), 'countryLimitationsRaw': g('country_limitations'),
             'availability': g('availability'), 'updatedTimestamp': g('updated_timestamp'),
@@ -131,9 +139,14 @@ def convert(stream, output, source_label):
                     db.execute('INSERT OR REPLACE INTO offers VALUES (?, ?, ?, ?)',
                                (result['productId'], result['steamId'], result['identity'], compact(result)))
                     db.execute('DELETE FROM lookup WHERE product=?', (result['productId'],))
-                    keys = ['t:' + result['identity']]
+                    keys = ['o:t:' + result['identity']]
                     if result['steamId']:
-                        keys.append('s:' + result['steamId'])
+                        keys.append('o:s:' + result['steamId'])
+                    # Existing Android versions use the unprefixed key-only index.
+                    if result['deliveryType'] == 'KEY':
+                        keys.append('t:' + result['identity'])
+                        if result['steamId']:
+                            keys.append('s:' + result['steamId'])
                     for key in keys:
                         db.execute('INSERT INTO lookup VALUES (?, ?, ?)', (key, bucket_for(key), result['productId']))
                     counts['matchingRows'] += 1
@@ -179,7 +192,7 @@ def convert(stream, output, source_label):
         manifest = {'schema': 2, 'generatedAt': generated,
                     'source': source_label, 'status': 'prototype-not-published',
                     'itemsRead': counts['itemsRead'], 'offers': unique[0], 'games': unique[1],
-                    'partition': 'first 3 lowercase SHA256 hex digits of UTF-8 lookup key; s:appid or t:normalized-title',
+                    'partition': 'first 3 lowercase SHA256 hex digits; o:s:appid or o:t:normalized-title for all offers; s:appid or t:normalized-title for legacy keys only',
                     'seconds': round(time.monotonic()-started, 2),
                     'totalBytes': sum(s['bytes'] for s in shards),
                     'maxShardBytes': max(s['bytes'] for s in shards), 'shards': shards}

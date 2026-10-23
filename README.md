@@ -11,7 +11,7 @@ Required repository Actions secrets:
 - `CLOUDFLARE_ACCOUNT_ID`: the selected account identifier.
 - `CLOUDFLARE_API_TOKEN`: a token authorized for Cloudflare Pages Edit on the selected account. Never commit its value to a file.
 
-The feed URL is public and already contains multiple currencies. Prices are kept as provided. Shipping/additional-cost data and region limitations remain separate; no currency conversion or country-activation assumption is performed. PC key variants remain separate. Account, gift, VPN and console products are excluded. Schema 2 indexes exact game names and available Steam app IDs; the Android client also checks publishers for name-only matches. Referral links are configured in the Android client, never in a secret token.
+The feed URL is public and already contains multiple currencies. Prices are kept as provided. Shipping/additional-cost data and region limitations remain separate; no currency conversion or country-activation assumption is performed. PC key, game-account, gift and Altergift offers retain an explicit deliveryType. Only matching GAME, GAME_ACCOUNT and ALTERGIFT product types are accepted. In-game accounts, gift cards, VPN/services and console products remain excluded. Keys, accounts and gifts must be displayed separately in Android. Schema 2 indexes exact game names and available Steam app IDs. The o: namespace contains all delivery types; unprefixed entries retain keys only for existing Android versions; the Android client also checks publishers for name-only matches. Referral links are configured in the Android client, never in a secret token.
 
 Tests: `python3 -m unittest discover -p test_convert_feed.py`.
 
